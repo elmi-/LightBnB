@@ -83,7 +83,6 @@ const getAllReservations = function(guest_id, limit = 10) {
   LIMIT $2;
   `, [guest_id, limit])
   .then((result) => {
-    console.log(result.rows)
     return result.rows;
   })
   .catch((err) => {
@@ -102,11 +101,53 @@ exports.getAllReservations = getAllReservations;
  */
 
 const getAllProperties = (options, limit = 10) => {
-  return pool.query(
-    `SELECT * FROM properties LIMIT $1`, [limit]
-  )
+  const queryParams = [];
+  let queryString = `
+    SELECT properties.*, AVG(rating) as average_rating
+    FROM properties
+    JOIN property_reviews ON property_reviews.property_id = properties.id
+    WHERE 1=1
+  `;
+
+  // if an city is passed in, only return properties from that city and add to query string from above
+  if (options.city) {
+    queryParams.push(`%${options.city}%`);
+    queryString += `AND city LIKE $${queryParams.length} `;
+  }
+  // if an owner_id is passed in, only return properties belonging to that owner
+  if (options.owner_id) {
+    queryParams.push(`${options.owner_id}`);
+    queryString += `AND owner_id = $${queryParams.length} `;  
+  }
+
+  if (options.minimum_price_per_night) {
+    queryParams.push(`${options.minimum_price_per_night}`);
+    queryString += `AND cost_per_night >= $${queryParams.length} `;  
+  }
+
+  if (options.maximum_price_per_night) {
+    queryParams.push(`${options.maximum_price_per_night}`);
+    queryString += `AND cost_per_night <= $${queryParams.length} `;  
+  }
+
+  // add GROUP BY to query before including HAVING clause for minimum_rating
+  queryString +=  `GROUP BY properties.id`;
+  
+  if (options.minimum_rating) {
+    queryParams.push(`${options.minimum_rating}`);
+    queryString += ` HAVING AVG(rating) >= $${queryParams.length} `;  
+  }
+
+  queryParams.push(limit);
+  queryString += `
+  LIMIT $${queryParams.length};
+  `;
+  
+  console.log(queryString, queryParams);
+  return pool
+  .query(queryString, queryParams)
   .then((result) => {
-    result.rows
+    return result.rows;
   })
   .catch((err) => {
     console.log(err.message)
